@@ -1,5 +1,5 @@
 const mongoose = require("mongoose");
-const mongouri = "mongodb+srv://shaka:iPod_nano@cluster0.zjwyqfk.mongodb.net/test";
+const mongouri = "mongodb+srv://cokadb:cSWbJM4YDxRD3jV8@cluster0.zeel4yo.mongodb.net/test";
 
 const conecttomongo = () => {
   mongoose.set("strictQuery", true);

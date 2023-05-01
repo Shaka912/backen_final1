@@ -17,6 +17,7 @@ const Image = require("../models/pic");
 const User = require("../models/users");
 const Video = require("../models/video");
 const Gender = require("../models/gender");
+const PGender = require("../models/pgender");
 const University = require("../models/uni");
 const Friend = require("../models/friends");
 const Message = require("../models/message");
@@ -24,7 +25,17 @@ const Payment = require("../models/payment");
 const Location = require("../models/location");
 const Intrests = require("../models/interests");
 
+
+const {
+  MediaConvertClient,
+  CreateJobCommand,
+  GetJobCommand
+} = require("@aws-sdk/client-mediaconvert");
+const { RekognitionClient, DetectModerationLabelsCommand,StartContentModerationCommand
+, GetContentModerationCommand } = require("@aws-sdk/client-rekognition");
+const { SQSClient,ReceiveMessageCommand,DeleteMessageCommand } = require("@aws-sdk/client-sqs");
 const utils = require("../utils/utils");
+
 const { google } = require("googleapis");
 const mediainfo = require("mediainfo-wrapper");
 const isValidVideo = require("../middleware/video");
@@ -33,10 +44,10 @@ const { body, validationResult } = require("express-validator");
 
 const jwt_secrect = "hello$123";
 const CLIENT_ID =
-  "480528069205-vajp5scbpimv6qdob9ul1tes1kohailn.apps.googleusercontent.com";
-const SECERET = "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";
+  "922045328145-mn8d9sqilq5j05du2241fv753bml93t3.apps.googleusercontent.com";
+const SECERET = "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";
 const refresh_token =
-  "1//04HuLapIZYpIJCgYIARAAGAQSNwF-L9IrP4ouusos0HaiA6buMwHrUEtHvy-2crW6bQeNbYceomedVVKIkA41166VIZJc1yVoZsI";
+  "1//04A6ECqP588l8CgYIARAAGAQSNwF-L9IreOJV-Z2ggfeaADtxDDHgjrQ0pg_qK2p3uRBuYSB6M8QMxJs7V6XdY5WvmigPOE4FGi0";
 const redirect_uri = "https://developers.google.com/oauthplayground";
 const oAuth2client = new google.auth.OAuth2(CLIENT_ID, SECERET, redirect_uri);
 oAuth2client.setCredentials({ refresh_token: refresh_token });
@@ -44,15 +55,39 @@ oAuth2client.setCredentials({ refresh_token: refresh_token });
 const s3 = new S3Client({
   region: 'us-east-1',
   credentials: {
-    accessKeyId: "AKIA5NPQUPVRCHWQ5R73",
-    secretAccessKey: "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",
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
   },
 });
+
+const client = new RekognitionClient({ region: 'us-east-1',
+                       credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  }, });
+
+const client_media = new MediaConvertClient({
+  region: "us-east-1",
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  },
+  endpoint: "https://q25wbt2lc.mediaconvert.us-east-1.amazonaws.com",
+});
+
+const sqsQueueUrl = 'https://sqs.us-east-1.amazonaws.com/922312015202/rekogination';
+const sqsClient = new SQSClient({  region: 'us-east-1',
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  }, });
+
+
 
 const Storage = multerS3({
   s3: s3,
   acl: "public-read",
-  bucket: "cokastorage",
+  bucket: process.env.AWS_BUCKET_NAME,
   metadata: (req, file, cb) => {
     cb(null, { fieldName: file.fieldname });
   },
@@ -71,6 +106,8 @@ const upload = multer({
 const uploads = multer({
   storage: Storage,
 }).array("files", 5);
+
+
 
 router.post(
   "/createuser",
@@ -197,6 +234,27 @@ router.post("/usergender", fetchuser, async (req, res) => {
     res.status(500).json({ error: "Something went wrong" });
   }
 });
+router.post("/userpreferedgender", fetchuser, async (req, res) => {
+  try {
+    const gender = req.body.gender;
+    //creating gender
+    const gen = await PGender.create({
+      _id: req.user.id,
+      gender: gender,
+    });
+    res.json(gen);
+  } catch (error) {
+    res.status(500).json({ error: "Something went wrong" });
+  }
+});
+router.get("/userpreferedgender", fetchuser, async (req, res) => {
+  try {
+    const gen = await PGender.findById(req.user.id);
+    res.json(gen);
+  } catch (error) {
+    res.status(500).json({ error: "Something went wrong" });
+  }
+});
 router.post("/userdob", fetchuser, async (req, res) => {
   try {
     const dob = req.body.dob;
@@ -271,19 +329,40 @@ router.post("/uploaddp", fetchuser, (req, res) => {
         console.log(err);
         res.status(401).json({ error: "Not Uploaded" });
       } else {
-        console.log(req.file.location);
-        const dd = await Image.create({
+        
+        const command = new DetectModerationLabelsCommand({Image:{S3Object:{Bucket: 'cokastorage',
+        Name: req.file.key},},});
+        const response = await client.send(command);
+        
+	let no = false;
+        response.ModerationLabels.forEach((label) => {
+          if (label.ParentName === "Explicit Nudity") {
+            no = true;
+          }
+        });
+        if (no === true) {
+          res
+            .status(401)
+            .json({ error: "Image Violates Our image Sharing Law" });
+        }
+	else {
+	 const dd = await Image.create({
           _id: req.user.id,
-          path: req.file.location,
-          // path: `/${req.file.path.replace(/\\/g, "/")}`,
+          path: `http://d1swej1r4a7z0w.cloudfront.net/${req.file.key}`
+          // path: `/${req.file.path.replace(/\\/g, "/")}`,,
+          //req.file.location,
         });
         res.json(dd);
-      }
-    });
+	}
+   }
+   });
+	 
   } catch (error) {
     console.log(error);
     res.status(500).json({ error: "Something went wrong" });
   }
+
+  
 });
 
 router.post("/uploadpics", fetchuser, (req, res) => {
@@ -293,17 +372,45 @@ router.post("/uploadpics", fetchuser, (req, res) => {
         console.log(err);
         res.status(401).json({ error: "Not Uploaded" });
       } else {
+	let no = false;
         const paths = [];
+	const paths1 =[];
         for (let file of req.files) {
-          paths.push(`/${file.path.replace(/\\/g, "/")}`);
+         // paths.push(`/${file.path.replace(/\\/g, "/")}`);
+	paths.push(file.key)
         }
-        await Image.updateOne(
-          { _id: req.user.id },
-          {
-            $set: { paths: paths },
+         for (let i of paths) {
+          const command = new DetectModerationLabelsCommand({
+            Image: { S3Object: { Bucket: "cokastorage", Name: i } },
+          });
+	 
+          const response = await client.send(command);
+          
+          response.ModerationLabels.forEach((label) => {
+            if (label.ParentName === "Explicit Nudity") {
+              no = true;
+              
+            }
+          });
+        }
+        if (no === true) {
+          res
+            .status(401)
+            .json({ error: "Image Violates Our image Sharing Law" });
+	return;
+        }
+        else {
+	          for (let i of req.files) {  
+            paths1.push(`http://d1swej1r4a7z0w.cloudfront.net/${i.key}`);
           }
-        );
-        const dd = await Image.findOne({ _id: { $eq: req.user.id } });
+	          await Image.updateOne(
+            { _id: req.user.id },
+            {
+              $set: { paths: paths1 },
+            }
+          );
+	}
+	        const dd = await Image.findOne({ _id: { $eq: req.user.id } });
         res.json(dd);
       }
     });
@@ -325,15 +432,34 @@ router.post("/updatedp", fetchuser, async (req, res) => {
       if (err) {
         res.status(401).json({ error: "Not Uploaded" });
       } else {
+	 const command = new DetectModerationLabelsCommand({
+          Image: { S3Object: { Bucket: "cokastorage", Name: req.file.key } },
+        });
+        const response = await client.send(command);
+        let no = false;
+        response.ModerationLabels.forEach((label) => {
+          if (label.ParentName === "Explicit Nudity") {
+            no = true;
+          }
+        });
+        if (no === true) {
+          res
+            .status(401)
+            .json({ error: "Image Violates Our image Sharing Law" });
+          return;
+        }
+	else {
+
         await Image.updateOne(
           { _id: req.user.id },
           {
-            $set: { path: req.file.location },
+            $set: { path: `http://d1swej1r4a7z0w.cloudfront.net/${req.file.key}` },
             // $set: { path: `/${req.file.path.replace(/\\/g, "/")}` },
           }
         );
         const dd = await Image.findOne({ _id: { $eq: req.user.id } });
         res.json(dd);
+	}
       }
     });
   } catch (error) {
@@ -352,17 +478,49 @@ router.post("/updatevideo", fetchuser, async (req, res) => {
     utils.rmFile(pic.path);
     upload(req, res, async (err) => {
       if (err) {
-        res.status(401).json({ error: "Not Uploaded" });
+        return res.status(401).json({ error: "Not Uploaded" });
       } else {
-        await Video.updateOne(
-          { _id: req.user.id },
-          {
-            $set: { path: req.file.location },
-            // $set: { path: `/${req.file.path.replace(/\\/g, "/")}` },
+        const command = new StartContentModerationCommand({
+          Video: {
+            S3Object: {
+              Bucket: "cokastorage",
+              Name: req.file.key,
+            },
+          },
+          NotificationChannel: {
+            RoleArn: "arn:aws:iam::922312015202:role/rekogination",
+            SNSTopicArn: "arn:aws:sns:us-east-1:922312015202:AmazonRekognition",
+          },
+        });
+        const response = await client.send(command);
+        let rep = "";
+        const command1 = new GetContentModerationCommand({
+          JobId: response.JobId,
+        });
+        let job = false;
+        while (job == false) {
+          const response1 = await client.send(command1);
+          if (response1.JobStatus === "SUCCEEDED") {
+            job = true;
+            console.log(response1);
+            rep = response1;
           }
-        );
-        const dd = await Video.findOne({ _id: { $eq: req.user.id } });
-        res.json(dd);
+        }
+        if (rep.ModerationLabels.length > 1) {
+          return res.status(401).json({
+            error: "The video Contains Elements that are against our policies",
+          });
+        } else {
+          await Video.updateOne(
+            { _id: req.user.id },
+            {
+              $set: { path: `http://d1swej1r4a7z0w.cloudfront.net/${req.file.key}` },
+              // $set: { path: `/${req.file.path.replace(/\\/g, "/")}` },
+            }
+          );
+          const dd = await Video.findOne({ _id: { $eq: req.user.id } });
+          res.json(dd);
+        }
       }
     });
   } catch (error) {
@@ -380,7 +538,7 @@ router.get("/getmatches", fetchuser, async (req, res) => {
     for (let x of f) {
       if (!x.both) {
         const user = await User.findOne({ _id: { $eq: x.uid } });
-        fusers = [...fusers, user];
+        if (user) fusers = [...fusers, user];
       }
     }
     if (fusers.length > 0) {
@@ -467,11 +625,17 @@ router.get("/getusers", fetchuser, async (req, res) => {
           friendId: { $eq: req.user.id },
         });
         const msgs = await Message.find({
-          from: { $eq: req.user.id },
-          to: { $eq: user.id },
+          from: { $in: [req.user.id, user.id] },
+          to: { $in: [req.user.id, user.id] },
         })
           .sort({ updatedAt: -1 })
           .limit(1);
+	 if (xfri){
+	     if (xfri.block) continue;
+	 }
+	 if (yfri){
+	     if (yfri.block) continue;
+	 }
         users.push({
           id: user.id,
           email: user.email,
@@ -563,16 +727,178 @@ router.post("/removeuser", fetchuser, async (req, res) => {
 
 router.post("/uploadvideo", fetchuser, isValidVideo, (req, res) => {
   try {
+    const userSocket = onlineUsers.get(req.user.id);
     upload(req, res, async (err) => {
       if (err) {
         res.status(401).json({ error: "Not Uploaded" });
       } else {
-        const dd = await Video.create({
-          _id: req.user.id,
-          path: req.file.location,
-          // path: `/${req.file.path.replace(/\\/g, "/")}`,
+	console.log("uploading...");
+	 const command = new StartContentModerationCommand({
+          Video:{
+            S3Object:{
+              Bucket: 'cokastorage',
+              Name: req.file.key
+            },
+          },
+          NotificationChannel: {
+            RoleArn: 'arn:aws:iam::922312015202:role/rekogination',
+            SNSTopicArn: 'arn:aws:sns:us-east-1:922312015202:AmazonRekognition',
+          }
         });
-        res.json(dd);
+	console.log(req.file.key);
+	      if (userSocket) {
+        chatSocket.to(userSocket).emit("upload", {});
+      }
+
+        const response = await client.send(command);
+        console.log(response.JobId);
+	 const command1 = new GetContentModerationCommand({JobId:response.JobId});
+	let rep = '';
+        let job = false;
+       while(job ==false ){
+        const response1 = await client.send(command1);
+        if(response1.JobStatus==='SUCCEEDED'){
+          job = true;
+          console.log(response1);
+	  rep = response1;
+        }
+	 else if (response1.JobStatus === "FAILED") {
+            job = true;
+            return res.status(401).json({
+              error: "There was some error",
+            });
+          }
+       }
+	let checker = false;
+	for ( let i=0; i<rep.ModerationLabels.length; i++){
+  if(rep.ModerationLabels[i].ModerationLabel.ParentName =='Explicit Nudity' && rep.ModerationLabels[i].ModerationLabel.Confidence >85 ){
+    checker = true;
+  }
+}
+	if(checker === true  ){
+        return res.status(401).json({ error: "The video Contains Elements that are against our policies" });
+      }
+	else {
+	console.log(rep.ModerationLabels[3]);
+	console.log(rep.ModerationLabels.ModerationLabel)
+		if (userSocket) {
+        chatSocket.to(userSocket).emit("transcode", {});
+      }
+	   console.log("Transcoding file...");
+	
+           const command12 = new CreateJobCommand({
+            Role: "arn:aws:iam::922312015202:role/service-role/MediaConvert_Default_Role",
+            Settings: {
+              Inputs:[
+                {
+                  FileInput: `s3://cokastorage/${req.file.key}`,
+		   "AudioSelectors": {
+                    "Audio Selector 1": {
+                      "Offset": 0,
+                      "SelectorType": "LANGUAGE_CODE",
+                      "DefaultSelection": "DEFAULT",
+                      "LanguageCode": "ENM",
+                      "ProgramSelection": 1
+                    }
+                  },
+		VideoSelector: {
+                    Rotate: "AUTO",
+                  },
+                }
+              ],
+             OutputGroups: [
+                {
+                  Name: "Apple HLS",
+                  Outputs: [
+                    {
+                      ContainerSettings: {
+                        Container: "M3U8",
+                        M3u8Settings: {}
+                      },
+                      VideoDescription: {
+                        CodecSettings: {
+                          Codec: "H_264",
+                          H264Settings: {
+                            MaxBitrate: 8000000,
+                            RateControlMode: "QVBR",
+                            SceneChangeDetect: "TRANSITION_DETECTION"
+                          }
+                        }
+                      },
+                      AudioDescriptions: [
+                        {
+                          CodecSettings: {
+                            Codec: "AAC",
+                            AacSettings: {
+                              Bitrate: 96000,
+                              CodingMode: "CODING_MODE_2_0",
+                              SampleRate: 48000
+                            }
+                          }
+                        }
+                      ],
+                      OutputSettings: {
+                        HlsSettings: {}
+                      },
+                      NameModifier: "hls"
+                    }
+                  ],
+                  OutputGroupSettings: {
+                    Type: "HLS_GROUP_SETTINGS",
+                    HlsGroupSettings: {
+                      SegmentLength: 10,
+                      Destination: "s3://cokastorage/",
+                      MinSegmentLength: 0
+                    }
+                  }
+                }
+              ],
+              Priority: 0,
+            },
+          });
+	  let mod = false;
+          // transcoding mp4 to HLS format
+          let job = false;
+         const response12 = await client_media.send(command12)
+		if (userSocket) {
+        chatSocket.to(userSocket).emit("convert", {});
+      }
+    	console.log(response12);
+	console.log("converting..");
+	
+	 let st = req.file.key;
+          let x = st.split('.');
+          const newx =  x[0] + 'hls.m3u8';
+	const command_getjob = new GetJobCommand({Id:response12.Job.Id});
+	             var i = 1;
+          function myLoop() {
+            setTimeout(async function () {
+              let response_getjob = await client_media.send(command_getjob);
+              if (response_getjob.Job.Status === "COMPLETE") {
+                console.log("Complete");
+                const dd = await Video.create({
+                  _id: req.user.id,
+                  path: `http://d1swej1r4a7z0w.cloudfront.net/${newx}`,
+                });
+		     if (userSocket) {
+        chatSocket.to(userSocket).emit("convert", {});
+      }
+                res.json(dd);
+		i = 5;
+              } else if (response_getjob.Job.Status === "ERROR") {
+                console.log("ERROR has occured");
+                return res.status(401).json({
+                  error: "Sorry try again ",
+                });
+              }
+              i++;
+              if (i < 4) {
+                myLoop();
+              }
+            }, 20000);
+          }
+          myLoop();	         
+        }
       }
     });
   } catch (error) {

@@ -95,7 +95,7 @@ router.post("/addfriend", fetchuser, async (req, res) => {
         );
         return res
           .status(200)
-          .json({ _id: x2._id, uid: x2.friendId, friendId: x2.uid });
+          .json({ _id: x2._id, uid: x2.friendId, friendId: x2.uid, both: true });
       }
       const dd = await Friend.create({
         uid: req.user.id,
@@ -128,15 +128,65 @@ router.post("/removefriend", fetchuser, async (req, res) => {
   }
 });
 
+router.post("/blockfriend", fetchuser, async (req, res) => {
+  try {
+    const friendID = req.body.friendId;
+    if (!friendID) {
+      return res.status(500).json({ error: "Friend Id is required" });
+    }
+    await Friend.updateOne(
+      { uid: req.user.id, friendId: friendID },
+      {
+        $set: { block: true },
+      }
+    );
+    await Friend.updateOne(
+      { uid: friendID, friendId: req.user.id },
+      {
+        $set: { block: true },
+      }
+    );
+    return res.status(200).json({ message: "User Blocked" });
+  } catch (error) {
+    return res.status(500).json({ error: "Something went wrong" });
+  }
+});
+
+router.post("/unblockfriend", fetchuser, async (req, res) => {
+  try {
+    const friendID = req.body.friendId;
+    if (!friendID) {
+      return res.status(500).json({ error: "Friend Id is required" });
+    }
+    await Friend.updateOne(
+      { uid: req.user.id, friendId: friendID },
+      {
+        $set: { block: false },
+      }
+    );
+    await Friend.updateOne(
+      { uid: friendID, friendId: req.user.id },
+      {
+        $set: { block: false },
+      }
+    );
+    return res.status(200).json({ message: "User UnBlocked" });
+  } catch (error) {
+    return res.status(500).json({ error: "Something went wrong" });
+  }
+});
+
 router.get("/getfriends", fetchuser, async (req, res) => {
   try {
     const fusers = await Friend.find({
       uid: { $eq: req.user.id },
       both: true,
+      block: false,
     });
     const musers = await Friend.find({
       friendId: { $eq: req.user.id },
       both: true,
+      block: false,
     });
     const messages = await Message.find({
       to: { $eq: req.user.id },
@@ -152,6 +202,46 @@ router.get("/getfriends", fetchuser, async (req, res) => {
     }
     for (let user of messages) {
       const us = await getUserObject(req.user.id, user.from);
+	    let block = await Friend.find({
+      friendId: { $eq: req.user.id },
+	uid: { $eq: user.from },
+      block: true,
+    });
+	    if (!block){
+		    let block = await Friend.find({
+      uid: { $eq: req.user.id },
+        friendId: { $eq: user.from },
+      block: true,
+    });
+	    }
+      if (users.findIndex((e) => e.id == us.id) == -1 && !block) {
+       users.push(us);
+      }
+    }
+    return res.status(200).json({ users });
+  } catch (error) {
+    console.log(error);
+    return res.status(500).json({ error: "SomeThing Went Wrong" });
+  }
+});
+
+router.get("/getblockfriends", fetchuser, async (req, res) => {
+  try {
+    const fusers = await Friend.find({
+      uid: { $eq: req.user.id },
+      block: true,
+    });
+    const musers = await Friend.find({
+      friendId: { $eq: req.user.id },
+      block: true,
+    });
+    const users = [];
+    for (let user of fusers) {
+      const us = await getUserObject(req.user.id, user.friendId);
+      users.push(us);
+    }
+    for (let user of musers) {
+      const us = await getUserObject(req.user.id, user.uid);
       users.push(us);
     }
     return res.status(200).json({ users });
@@ -161,4 +251,22 @@ router.get("/getfriends", fetchuser, async (req, res) => {
   }
 });
 
+router.get("/getremainingtime", fetchuser, async (req, res) => {
+  try {
+    const likeCount = await Likes.findById(req.user.id);
+    if (likeCount) {
+      if (likeCount.likeCount > 4) {
+        const timePassed = Date.now() - Date.parse(likeCount.updatedAt);
+        const timeLeft = 12 * 60 * 60 * 1000 - timePassed;
+        return res.status(200).json({ remainingTime: timeLeft });
+      }
+    }
+    return res.status(500).json({ error: "SomeThing Went Wrong" });
+  } catch (error) {
+    console.log(error);
+    return res.status(500).json({ error: "SomeThing Went Wrong" });
+  }
+});
+
 module.exports = router;
+

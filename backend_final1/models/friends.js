@@ -15,6 +15,10 @@ const FriendSchema = new Schema({
   both: {
     type: Boolean,
     default: false,
+  },
+  block: {
+    type: Boolean,
+    default: false,
   }
 });
 

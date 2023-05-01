@@ -3,14 +3,18 @@ const jwt = require("jsonwebtoken");
 
 // get the user from jwt 
 const fetchadmin =(req, res, next) =>{
-    const token = req.header("auth-token")
+
+   // const token = req.headers.authorization;
+const token = req.headers.authorization;
+console.log(token);
+ // const token = authHeader && authHeader.split(' ')[1];
     if (!token){
-        res.status(401).send({error:"please validate using valid token"})
+        res.status(401).send({error:"please validate using  token"})
     }
     
     try {
         const data = jwt.verify(token, jwt_secrect);
-        req.user = data.user;
+        
         next(); 
     } catch (error) {
         res.status(401).send({error:"please validate using valid token"})

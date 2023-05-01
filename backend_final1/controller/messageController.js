@@ -5,18 +5,10 @@ module.exports.getMessages = async (req, res, next) => {
     const { from, to } = req.body;
 
     const messages = await Messages.find({
-      from: { $eq: from },
-      to: { $eq: to },
+        from: { $in: [from, to] },
+        to: { $in: [from, to] },
     }).sort({ updatedAt: 1 });
-
-    const projectedMessages = messages.map((msg) => {
-      return {
-        from: msg.sender.toString(),
-        to: msg.users[1].toString(),
-        message: msg.message.text,
-      };
-    });
-    res.json({ messages: projectedMessages });
+    res.json({ messages: messages });
   } catch (ex) {
     res.json({ error: "Something went wrong" });
   }
@@ -24,9 +16,10 @@ module.exports.getMessages = async (req, res, next) => {
 
 module.exports.addMessage = async (payload) => {
   try {
-    const { from, to, message } = payload;
+    const { from, to, message, timeStamp } = payload;
     const response = await Messages.create({
       message: { text: message },
+      timeStamp: timeStamp,
       from: from,
       to: to,
     });
