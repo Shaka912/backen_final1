@@ -51,7 +51,7 @@ trigger();
 const server = http.createServer(app);
   const io = require("socket.io")(server, {
     cors: {
-      origin: `http://3.238.22.34:${port}`,
+      origin: `http://172.31.7.168:${port}`,
     },
   });
 
