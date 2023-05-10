@@ -72,10 +72,10 @@ const client_media = new MediaConvertClient({
     accessKeyId: process.env.AWS_ACCESS_KEY_ID,
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
   },
-  endpoint: "https://q25wbt2lc.mediaconvert.us-east-1.amazonaws.com",
+  endpoint: process.env.MEDIACONVERT_URL,
 });
 
-const sqsQueueUrl = 'https://sqs.us-east-1.amazonaws.com/922312015202/rekogination';
+const sqsQueueUrl = process.env.SQS_URL;
 const sqsClient = new SQSClient({  region: 'us-east-1',
   credentials: {
     accessKeyId: process.env.AWS_ACCESS_KEY_ID,
@@ -330,7 +330,7 @@ router.post("/uploaddp", fetchuser, (req, res) => {
         res.status(401).json({ error: "Not Uploaded" });
       } else {
         
-        const command = new DetectModerationLabelsCommand({Image:{S3Object:{Bucket: 'cokastorage',
+        const command = new DetectModerationLabelsCommand({Image:{S3Object:{Bucket: process.env.AWS_BUCKET_NAME,
         Name: req.file.key},},});
         const response = await client.send(command);
         
@@ -348,7 +348,7 @@ router.post("/uploaddp", fetchuser, (req, res) => {
 	else {
 	 const dd = await Image.create({
           _id: req.user.id,
-          path: `http://d1swej1r4a7z0w.cloudfront.net/${req.file.key}`
+          path: `http://di0j0bmyqgivc.cloudfront.net/${req.file.key}`
           // path: `/${req.file.path.replace(/\\/g, "/")}`,,
           //req.file.location,
         });
@@ -381,7 +381,7 @@ router.post("/uploadpics", fetchuser, (req, res) => {
         }
          for (let i of paths) {
           const command = new DetectModerationLabelsCommand({
-            Image: { S3Object: { Bucket: "cokastorage", Name: i } },
+            Image: { S3Object: { Bucket: process.env.AWS_BUCKET_NAME , Name: i } },
           });
 	 
           const response = await client.send(command);
@@ -401,7 +401,7 @@ router.post("/uploadpics", fetchuser, (req, res) => {
         }
         else {
 	          for (let i of req.files) {  
-            paths1.push(`http://d1swej1r4a7z0w.cloudfront.net/${i.key}`);
+            paths1.push(`http://di0j0bmyqgivc.cloudfront.net/${i.key}`);
           }
 	          await Image.updateOne(
             { _id: req.user.id },
@@ -433,7 +433,7 @@ router.post("/updatedp", fetchuser, async (req, res) => {
         res.status(401).json({ error: "Not Uploaded" });
       } else {
 	 const command = new DetectModerationLabelsCommand({
-          Image: { S3Object: { Bucket: "cokastorage", Name: req.file.key } },
+          Image: { S3Object: { Bucket: process.env.AWS_BUCKET_NAME , Name: req.file.key } },
         });
         const response = await client.send(command);
         let no = false;
@@ -453,7 +453,7 @@ router.post("/updatedp", fetchuser, async (req, res) => {
         await Image.updateOne(
           { _id: req.user.id },
           {
-            $set: { path: `http://d1swej1r4a7z0w.cloudfront.net/${req.file.key}` },
+            $set: { path: `http://di0j0bmyqgivc.cloudfront.net/${req.file.key}` },
             // $set: { path: `/${req.file.path.replace(/\\/g, "/")}` },
           }
         );
@@ -483,13 +483,13 @@ router.post("/updatevideo", fetchuser, async (req, res) => {
         const command = new StartContentModerationCommand({
           Video: {
             S3Object: {
-              Bucket: "cokastorage",
+              Bucket: process.env.AWS_BUCKET_NAME,
               Name: req.file.key,
             },
           },
           NotificationChannel: {
-            RoleArn: "arn:aws:iam::922312015202:role/rekogination",
-            SNSTopicArn: "arn:aws:sns:us-east-1:922312015202:AmazonRekognition",
+            RoleArn: process.env.REKOGINATION_ROLE ,
+            SNSTopicArn: process.env.SNS_ARN,
           },
         });
         const response = await client.send(command);
@@ -514,7 +514,7 @@ router.post("/updatevideo", fetchuser, async (req, res) => {
           await Video.updateOne(
             { _id: req.user.id },
             {
-              $set: { path: `http://d1swej1r4a7z0w.cloudfront.net/${req.file.key}` },
+              $set: { path: `http://di0j0bmyqgivc.cloudfront.net/${req.file.key}` },
               // $set: { path: `/${req.file.path.replace(/\\/g, "/")}` },
             }
           );
@@ -736,13 +736,13 @@ router.post("/uploadvideo", fetchuser, isValidVideo, (req, res) => {
 	 const command = new StartContentModerationCommand({
           Video:{
             S3Object:{
-              Bucket: 'cokastorage',
+              Bucket: process.env.AWS_BUCKET_NAME,
               Name: req.file.key
             },
           },
           NotificationChannel: {
-            RoleArn: 'arn:aws:iam::922312015202:role/rekogination',
-            SNSTopicArn: 'arn:aws:sns:us-east-1:922312015202:AmazonRekognition',
+            RoleArn: process.env.REKOGINATION_ROLE,
+            SNSTopicArn: process.env.SNS_ARN,
           }
         });
 	console.log(req.file.key);
@@ -787,11 +787,11 @@ router.post("/uploadvideo", fetchuser, isValidVideo, (req, res) => {
 	   console.log("Transcoding file...");
 	
            const command12 = new CreateJobCommand({
-            Role: "arn:aws:iam::922312015202:role/service-role/MediaConvert_Default_Role",
+            Role: process.env.MEDIA_CONVERT_ROLE,
             Settings: {
               Inputs:[
                 {
-                  FileInput: `s3://cokastorage/${req.file.key}`,
+                  FileInput: `s3://cokastorage12/${req.file.key}`,
 		   "AudioSelectors": {
                     "Audio Selector 1": {
                       "Offset": 0,
@@ -847,7 +847,7 @@ router.post("/uploadvideo", fetchuser, isValidVideo, (req, res) => {
                     Type: "HLS_GROUP_SETTINGS",
                     HlsGroupSettings: {
                       SegmentLength: 10,
-                      Destination: "s3://cokastorage/",
+                      Destination: "s3://cokastorage12/",
                       MinSegmentLength: 0
                     }
                   }
@@ -878,7 +878,7 @@ router.post("/uploadvideo", fetchuser, isValidVideo, (req, res) => {
                 console.log("Complete");
                 const dd = await Video.create({
                   _id: req.user.id,
-                  path: `http://d1swej1r4a7z0w.cloudfront.net/${newx}`,
+                  path: `http://di0j0bmyqgivc.cloudfront.net/${newx}`,
                 });
 		     if (userSocket) {
         chatSocket.to(userSocket).emit("convert", {});
